@@ -18,11 +18,11 @@ rtabmap:
     OdomF2M/MaxSize: "10000"
 
     # ── ICP LiDAR Odometry ───────────────────────────────────
-    Icp/MaxCorrespondenceDistance: "0.1"
+    Icp/MaxCorrespondenceDistance: "0.15"
     Icp/PointToPlane: "true"
     Icp/Iterations: "30"
-    Icp/VoxelSize: "0.2"
-    Icp/MaxTranslation: "2.0"
+    Icp/VoxelSize: "0.3"
+    Icp/MaxTranslation: "1.0"
     Icp/CorrespondenceRatio: "0.01"
 
     # ── 3D Map ───────────────────────────────────────────────
@@ -39,7 +39,23 @@ rtabmap:
     subscribe_scan_cloud: true
     subscribe_scan: false
 
-    # ── RGB-D (ZED X) ─────────────────────────────────────────
+    # ── RGB-D Input ───────────────────────────────────────────
+    # Primary input: ZED X Left camera (/zed_left namespace)
+    # Topics are remapped in slam.launch.py:
+    #   rgb/image       → /zed_left/zed_node/rgb/image_rect_color
+    #   rgb/camera_info → /zed_left/zed_node/rgb/camera_info
+    #   depth/image     → /zed_left/zed_node/depth/depth_registered
+    #
+    # ZED X Right camera (/zed_right namespace) is running and publishing
+    # but is not yet fused into RTAB-Map. To add right camera fusion,
+    # a point cloud merge node or stereo stitcher would feed combined
+    # data here. That is a planned future update.
+    #
+    # Intel RealSense D455 — DISABLED (pending ROS connection fix)
+    # When re-enabled, swap remappings in slam.launch.py to:
+    #   rgb/image       → /camera/color/image_raw
+    #   rgb/camera_info → /camera/color/camera_info
+    #   depth/image     → /camera/aligned_depth_to_color/image_raw
     subscribe_rgb: true
     subscribe_depth: true
     approx_sync: true
@@ -69,7 +85,7 @@ rtabmap:
     Optimizer/Epsilon: "0.00001"
     Optimizer/Robust: "true"
 
-    # ── Point cloud filtering (ZED X range: 0.3-20m) ──────────
+    # ── Point cloud filtering (ZED X range: 0.3–20m) ─────────
     cloud_voxel_size: 0.05
     cloud_output_voxelized: true
     cloud_max_depth: 20.0             # ZED X max reliable depth

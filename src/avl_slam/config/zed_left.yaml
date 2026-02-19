@@ -1,0 +1,53 @@
+# ============================================================
+#  ZED X — Left Camera Config
+#  Mounted: Left side of vehicle
+#  Namespace: /zed_left
+# ============================================================
+
+zed_node:
+  ros__parameters:
+
+    # ── Camera Identity ───────────────────────────────────────
+    camera_model: 'zedx'
+    camera_name: 'zed_left'
+    serial_number: 43779087         # ← SET THIS: replace 0 with your left ZED X serial number
+    #                          #   find it with: /usr/local/zed/tools/ZED_Explorer
+
+    # ── Frames ───────────────────────────────────────────────
+    base_frame: 'base_link'
+    camera_frame: 'zed_left_camera_center'
+    publish_tf: false          # RTAB-Map handles TF
+    publish_map_tf: false
+
+    # ── Resolution & Frame Rate ───────────────────────────────
+    general.grab_resolution: 'HD720'     # 1280x720 — good balance of FOV and compute
+    general.grab_frame_rate: 15          # 15 Hz on side cameras to save bandwidth
+    general.self_calib: true
+
+    # ── Depth ─────────────────────────────────────────────────
+    depth.depth_mode: 'PERFORMANCE'      # PERFORMANCE | QUALITY | ULTRA
+    depth.min_depth: 0.3                 # ZED X minimum reliable depth (meters)
+    depth.max_depth: 20.0                # ZED X maximum reliable depth (meters)
+    depth.depth_stabilization: 1
+
+    # ── Image output ──────────────────────────────────────────
+    video.img_downsample_factor: 1.0
+    video.brightness: 4
+    video.contrast: 4
+    video.hue: 0
+    video.saturation: 4
+    video.sharpness: 4
+    video.gamma: 8
+    video.auto_exposure_gain: true
+    video.auto_whitebalance: true
+
+    # ── Point Cloud ───────────────────────────────────────────
+    point_cloud_freq: 5.0                # Lower Hz — RTAB-Map uses depth image, not this
+    mapping.mapping_enabled: false       # Let RTAB-Map handle mapping
+
+    # ── IMU ───────────────────────────────────────────────────
+    sensors.publish_imu_tf: false        # Xsens handles IMU; disable ZED IMU TF
+    sensors.sensors_image_sync: false
+
+    # ── QoS ───────────────────────────────────────────────────
+    use_sim_time: false
