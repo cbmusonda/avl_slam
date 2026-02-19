@@ -1,0 +1,29 @@
+# Xsens MTi Driver Configuration
+# Package: ros2_xsens_mti_driver (DEMCON fork)
+# Repo: https://github.com/DEMCON/ros2_xsens_mti_driver
+#
+# Published topics:
+#   /imu/data                  — sensor_msgs/Imu (accel + gyro + orientation)
+#   /imu/mag                   — sensor_msgs/MagneticField
+#   /filter/quaternion         — geometry_msgs/QuaternionStamped
+#   /filter/free_acceleration  — geometry_msgs/Vector3Stamped
+#   /imu/time_ref              — sensor_msgs/TimeReference (most accurate timestamps)
+
+xsens_mti_node:
+  ros__parameters:
+
+    # ── Connection ───────────────────────────────────────────────────
+    # scan_for_devices=true will auto-detect port (recommended for first run)
+    # Set to false + specify port/baudrate if you have multiple USB-serial devices
+    scan_for_devices: true
+    port: "/dev/ttyUSB1"     # only used when scan_for_devices=false
+    baudrate: 115200          # increase to 921600 for 400Hz output rates
+
+    # ── Frame ────────────────────────────────────────────────────────
+    frame_id: "imu_link"     # must match TF link in slam.launch.py
+
+    # ── Logging ──────────────────────────────────────────────────────
+    enable_logging: false
+    log_file: "xsens_log"
+
+    publisher_queue_size: 5

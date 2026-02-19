@@ -1,0 +1,14 @@
+# Madgwick IMU Filter Configuration
+# Fuses accelerometer + gyroscope → filtered orientation + angular velocity
+imu_filter_madgwick_node:
+  ros__parameters:
+    use_mag: false             # no magnetometer
+    publish_tf: false          # RTAB-Map handles TF
+    world_frame: "enu"
+    gain: 0.01                 # lower = smoother but slower (0.01–0.1 typical)
+    zeta: 0.0
+    orientation_stddev: 0.0
+    frequency: 100.0           # match your Xsens output rate (Hz)
+    stateless: false
+    remove_gravity_vector: false
+    fixed_frame: "odom"
