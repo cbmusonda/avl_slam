@@ -1,8 +1,11 @@
 #!/bin/bash
 # ============================================================
 #  AVL SLAM Workspace Setup
-#  Sensors: Velodyne VLP-16 | Intel RealSense D455 | Xsens IMU
+#  Sensors: Velodyne VLP-16 | ZED X (x2) | Xsens IMU
 #  ROS 2 Humble | RTAB-Map
+#
+#  NOTE: Intel RealSense D455 install is commented out pending
+#        ROS connection fix. Re-enable section [2b] when ready.
 # ============================================================
 
 set -e
@@ -18,7 +21,7 @@ echo "  Workspace:  $WS_DIR"
 echo "================================================"
 
 # ── 1. System dependencies ──────────────────────────────────
-echo "[1/5] Installing system dependencies..."
+echo "[1/6] Installing system dependencies..."
 
 sudo apt update && sudo apt install -y \
   ros-$ROS_DISTRO-rtabmap \
@@ -26,8 +29,6 @@ sudo apt update && sudo apt install -y \
   ros-$ROS_DISTRO-velodyne-driver \
   ros-$ROS_DISTRO-velodyne-laserscan \
   ros-$ROS_DISTRO-velodyne-pointcloud \
-  ros-$ROS_DISTRO-realsense2-camera \
-  ros-$ROS_DISTRO-realsense2-description \
   ros-$ROS_DISTRO-imu-tools \
   ros-$ROS_DISTRO-imu-filter-madgwick \
   ros-$ROS_DISTRO-robot-localization \
@@ -40,8 +41,27 @@ sudo apt update && sudo apt install -y \
   python3-colcon-common-extensions \
   python3-rosdep
 
-# ── 2. Create workspace & clone source packages ─────────────
-echo "[2/5] Setting up workspace source directory..."
+# ── 2a. ZED SDK (requires manual install if not present) ────
+echo "[2a/6] Checking ZED SDK..."
+if [ ! -f "/usr/local/zed/tools/ZED_Diagnostic" ]; then
+  echo "  ⚠️  ZED SDK not found."
+  echo "  Please download and install it from:"
+  echo "  https://www.stereolabs.com/developers/release"
+  echo "  Then re-run this script."
+  exit 1
+else
+  echo "  ✅ ZED SDK found."
+fi
+
+# ── 2b. Intel RealSense — COMMENTED OUT (pending ROS fix) ───
+# TODO: Re-enable when RealSense ROS connection is resolved.
+#
+# sudo apt install -y \
+#   ros-$ROS_DISTRO-realsense2-camera \
+#   ros-$ROS_DISTRO-realsense2-description
+
+# ── 3. Clone source packages ─────────────────────────────────
+echo "[3/6] Setting up workspace source directory..."
 
 mkdir -p "$SRC_DIR"
 cd "$SRC_DIR"
@@ -53,29 +73,48 @@ else
   echo "  rtabmap_ros already cloned, skipping."
 fi
 
-# ros2_xsens_mti_driver — DEMCON ROS 2 driver (fork of bluespace-ai)
+# ros2_xsens_mti_driver — DEMCON ROS 2 driver
 if [ ! -d "ros2_xsens_mti_driver" ]; then
   git clone https://github.com/DEMCON/ros2_xsens_mti_driver.git
 else
   echo "  ros2_xsens_mti_driver already cloned, skipping."
 fi
 
-# ── 3. rosdep install ───────────────────────────────────────
-echo "[3/5] Running rosdep..."
+# zed-ros2-wrapper — Stereolabs official ROS 2 wrapper
+if [ ! -d "zed-ros2-wrapper" ]; then
+  git clone --recurse-submodules https://github.com/stereolabs/zed-ros2-wrapper.git
+else
+  echo "  zed-ros2-wrapper already cloned, skipping."
+fi
+
+# zed-ros2-examples (optional but useful for testing)
+if [ ! -d "zed-ros2-examples" ]; then
+  git clone https://github.com/stereolabs/zed-ros2-examples.git
+else
+  echo "  zed-ros2-examples already cloned, skipping."
+fi
+
+# ── 4. rosdep install ───────────────────────────────────────
+echo "[4/6] Running rosdep..."
 cd "$WS_DIR"
 source /opt/ros/$ROS_DISTRO/setup.bash
 sudo rosdep init 2>/dev/null || true
 rosdep update
 rosdep install --from-paths src --ignore-src -r -y
 
-# ── 4. Build ────────────────────────────────────────────────
-echo "[4/5] Building workspace..."
+# ── 5. Build ────────────────────────────────────────────────
+echo "[5/6] Building workspace..."
 colcon build --symlink-install \
   --cmake-args -DCMAKE_BUILD_TYPE=Release \
-  --packages-select ros2_xsens_mti_driver rtabmap_ros
+  --packages-select \
+    ros2_xsens_mti_driver \
+    rtabmap_ros \
+    zed_wrapper \
+    zed_components \
+    zed_ros2_interfaces
 
-# ── 5. Source overlay ───────────────────────────────────────
-echo "[5/5] Adding workspace to ~/.bashrc..."
+# ── 6. Source overlay ───────────────────────────────────────
+echo "[6/6] Adding workspace to ~/.bashrc..."
 BASHRC_LINE="source $WS_DIR/install/setup.bash"
 if ! grep -qF "$BASHRC_LINE" ~/.bashrc; then
   echo "" >> ~/.bashrc
@@ -85,5 +124,11 @@ fi
 
 echo ""
 echo "✅ Workspace setup complete!"
-echo "   Run: source ~/.bashrc"
-echo "   Then: ros2 launch avl_slam slam.launch.py"
+echo ""
+echo "   Next steps:"
+echo "   1. source ~/.bashrc"
+echo "   2. Set your ZED X serial numbers in:"
+echo "        src/avl_slam/config/zed_left.yaml  (serial_number field)"
+echo "        src/avl_slam/config/zed_right.yaml (serial_number field)"
+echo "   3. Verify both cameras: /usr/local/zed/tools/ZED_Explorer"
+echo "   4. ros2 launch avl_slam slam.launch.py"
