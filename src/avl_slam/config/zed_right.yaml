@@ -28,7 +28,7 @@ zed_node:
     depth.depth_mode: 'PERFORMANCE'      # PERFORMANCE | QUALITY | ULTRA
     depth.min_depth: 0.3                 # ZED X minimum reliable depth (meters)
     depth.max_depth: 20.0                # ZED X maximum reliable depth (meters)
-    depth.depth_stabilization: 1
+    depth.depth_stabilization: 30
 
     # ── Image output ──────────────────────────────────────────
     video.img_downsample_factor: 1.0

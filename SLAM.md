@@ -66,7 +66,7 @@ rtabmap_viz
 ```bash
 /usr/local/zed/tools/ZED_Diagnostic
 ```
-**Expected:** A diagnostics window opens and reports both ZED X cameras detected with firmware versions.
+**Expected:** A diagnostics window opens and reports all connected ZED X cameras detected with firmware versions.
 If it says "No ZED camera detected" — check cable connections and rerun.
 
 ```bash
@@ -154,6 +154,29 @@ If missing: the package hasn't been built yet — run Part 2.
 
 ---
 
+### 1.10b Intel RealSense D455 (optional)
+```bash
+rs-enumerate-devices --compact
+```
+**Expected:**
+```
+Intel RealSense D455  5.13.0.50  USB 3.2
+```
+If firmware shows ≥5.16: downgrade to 5.13.0.50 (see `docs/realsense_d455_setup.tex` Step 2).
+
+```bash
+ros2 pkg list | grep realsense
+```
+**Expected:**
+```
+realsense2_camera
+realsense2_camera_msgs
+realsense2_description
+```
+If missing: rebuild with `--cmake-args -Drealsense2_DIR=/usr/local/lib/cmake/realsense2`.
+
+---
+
 ### 1.11 Full workspace dependency check
 ```bash
 cd ~/avl_slam_ws
@@ -207,6 +230,12 @@ If all packets lost: check ethernet cable and verify your machine's IP is `192.1
 ## Cam  1  ##
  Model :  "ZED X"
  S/N :  47753729
+ State :  "AVAILABLE"
+ Type :  "GMSL"
+
+## Cam  2  ##
+ Model :  "ZED X"
+ S/N :  <YOUR_BACK_SERIAL>
  State :  "AVAILABLE"
  Type :  "GMSL"
 ```
@@ -264,6 +293,7 @@ cd ~/avl_slam_ws
 ```bash
 colcon build --symlink-install \
   --cmake-args -DCMAKE_BUILD_TYPE=Release \
+    -Drealsense2_DIR=/usr/local/lib/cmake/realsense2 \
   --packages-skip zed_debug librealsense2
 ```
 **Expected:** `Summary: X packages finished [Xs]` with no `ERROR` lines.
@@ -276,7 +306,8 @@ Warnings about C++17, PCL_ROOT, or OpenCV conflicts are normal and can be ignore
 ```bash
 colcon build --symlink-install \
   --cmake-args -DCMAKE_BUILD_TYPE=Release \
-  --packages-select avl_slam rtabmap rtabmap_ros zed_wrapper zed_components zed_ros2_interfaces ros2_xsens_mti_driver \
+    -Drealsense2_DIR=/usr/local/lib/cmake/realsense2 \
+  --packages-select avl_slam rtabmap rtabmap_ros zed_wrapper zed_components zed_ros2_interfaces ros2_xsens_mti_driver realsense2_camera_msgs realsense2_description realsense2_camera \
   --packages-skip zed_debug librealsense2
 ```
 
@@ -325,6 +356,7 @@ ros2 launch avl_slam slam.launch.py
 [velodyne_driver] expected frequency: 9.921 (Hz)
 [zed_left.zed_node] Camera SN: 43779087
 [zed_right.zed_node] Camera SN: 47753729
+[zed_back.zed_node] Camera SN: <YOUR_BACK_SERIAL>
 [icp_odometry] Odom: ratio=0.5xx, std dev=0.00Xm|0.00Xrad ...
 [rtabmap] SLAM mode (Mem/IncrementalMemory=true)
 ```
@@ -344,6 +376,26 @@ ros2 launch avl_slam slam.launch.py
 ### 3.2 Launch headless (no visualizer)
 ```bash
 ros2 launch avl_slam slam.launch.py use_rviz:=false
+```
+
+---
+
+### 3.2b Launch with RealSense D455 as primary RGB-D
+```bash
+ros2 launch avl_slam slam.launch.py use_realsense:=true
+```
+**Expected additional output:**
+```
+Built with LibRealSense v2.57.6
+Running with LibRealSense v2.57.6
+Device Name: Intel RealSense D455
+Device FW version: 5.13.0.50
+RealSense Node Is Up!
+```
+
+```bash
+# RealSense + headless
+ros2 launch avl_slam slam.launch.py use_realsense:=true use_rviz:=false
 ```
 
 ---
@@ -387,6 +439,9 @@ ros2 topic list
 /zed_right/zed_node/rgb/image_rect_color
 /zed_right/zed_node/rgb/camera_info
 /zed_right/zed_node/depth/depth_registered
+/zed_back/zed_node/rgb/image_rect_color
+/zed_back/zed_node/rgb/camera_info
+/zed_back/zed_node/depth/depth_registered
 /imu/filtered
 /odom
 /rtabmap/mapData
@@ -399,6 +454,13 @@ ros2 topic list
 > Note: `/odom` is published by the `icp_odometry` node (LiDAR odometry).
 > `/odometry` is the ZED's internal visual odometry — it exists but is NOT used by RTAB-Map.
 
+**If launched with `use_realsense:=true`, also expect:**
+```
+/camera/camera/color/image_raw
+/camera/camera/color/camera_info
+/camera/camera/aligned_depth_to_color/image_raw
+```
+
 ---
 
 ### 4.2 Check topic publish rates
@@ -406,8 +468,15 @@ ros2 topic list
 ros2 topic hz /velodyne_points     # Expected: ~10.0 Hz
 ros2 topic hz /zed_left/zed_node/rgb/image_rect_color   # Expected: ~15.0 Hz
 ros2 topic hz /zed_right/zed_node/rgb/image_rect_color  # Expected: ~15.0 Hz
+ros2 topic hz /zed_back/zed_node/rgb/image_rect_color   # Expected: ~15.0 Hz
 ros2 topic hz /imu/filtered        # Expected: ~100.0 Hz
 ros2 topic hz /odom                # Expected: ~10.0 Hz
+```
+
+**If using RealSense D455 (`use_realsense:=true`):**
+```bash
+ros2 topic hz /camera/camera/color/image_raw                  # Expected: ~30 Hz
+ros2 topic hz /camera/camera/aligned_depth_to_color/image_raw  # Expected: ~30 Hz
 ```
 
 ---
@@ -442,6 +511,8 @@ Open the generated `frames.pdf` and confirm:
 map → odom → base_link → velodyne
                        → zed_left_camera_center
                        → zed_right_camera_center
+                       → zed_back_camera_center
+                       → camera_link  (when use_realsense:=true)
                        → imu_link
 ```
 

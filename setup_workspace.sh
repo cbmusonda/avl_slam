@@ -1,11 +1,12 @@
 #!/bin/bash
 # ============================================================
 #  AVL SLAM Workspace Setup
-#  Sensors: Velodyne VLP-16 | ZED X (x2) | Xsens IMU
+#  Sensors: Velodyne VLP-16 | ZED X (x2) | Intel RealSense D455 | Xsens IMU
 #  ROS 2 Humble | RTAB-Map
 #
-#  NOTE: Intel RealSense D455 install is commented out pending
-#        ROS connection fix. Re-enable section [2b] when ready.
+#  RealSense D455 requires librealsense 2.57.6 built from source
+#  with RSUSB backend and firmware downgraded to 5.13.0.50.
+#  See docs/realsense_d455_setup.tex for full setup instructions.
 # ============================================================
 
 set -e
@@ -53,12 +54,22 @@ else
   echo "  ✅ ZED SDK found."
 fi
 
-# ── 2b. Intel RealSense — COMMENTED OUT (pending ROS fix) ───
-# TODO: Re-enable when RealSense ROS connection is resolved.
-#
-# sudo apt install -y \
-#   ros-$ROS_DISTRO-realsense2-camera \
-#   ros-$ROS_DISTRO-realsense2-description
+# ── 2b. Intel RealSense D455 (source build) ──────────────────
+# The apt packages do NOT work on JetPack 6 (R36.x, kernel 5.15-tegra).
+# Prerequisites (done once, outside this script):
+#   1. Build librealsense 2.57.6 from source with RSUSB backend
+#   2. Downgrade D455 firmware to 5.13.0.50
+#   3. Remove apt packages: sudo apt remove ros-humble-librealsense2
+# See docs/realsense_d455_setup.tex for full instructions.
+echo "[2b/6] Checking librealsense source install..."
+if [ -f "/usr/local/lib/cmake/realsense2/realsense2Config.cmake" ]; then
+  echo "  ✅ librealsense 2.x found at /usr/local/lib/cmake/realsense2"
+else
+  echo "  ⚠️  librealsense not found at /usr/local/lib/cmake/realsense2."
+  echo "  RealSense support requires librealsense 2.57.6 built from source."
+  echo "  See docs/realsense_d455_setup.tex for build instructions."
+  echo "  Continuing without RealSense (ZED X cameras will still work)."
+fi
 
 # ── 3. Clone source packages ─────────────────────────────────
 echo "[3/6] Setting up workspace source directory..."
@@ -94,6 +105,17 @@ else
   echo "  zed-ros2-examples already cloned, skipping."
 fi
 
+# realsense-ros 4.56.4 — built from source against local librealsense 2.57.6
+# Do NOT use 4.57.6 (requires RS2_STREAM_SAFETY not in librealsense 2.57.6)
+if [ ! -d "realsense-ros" ]; then
+  git clone https://github.com/IntelRealSense/realsense-ros.git
+  cd realsense-ros
+  git checkout 4.56.4
+  cd ..
+else
+  echo "  realsense-ros already cloned, skipping."
+fi
+
 # ── 4. rosdep install ───────────────────────────────────────
 echo "[4/6] Running rosdep..."
 cd "$WS_DIR"
@@ -106,12 +128,16 @@ rosdep install --from-paths src --ignore-src -r -y
 echo "[5/6] Building workspace..."
 colcon build --symlink-install \
   --cmake-args -DCMAKE_BUILD_TYPE=Release \
+    -Drealsense2_DIR=/usr/local/lib/cmake/realsense2 \
   --packages-select \
     ros2_xsens_mti_driver \
     rtabmap_ros \
     zed_wrapper \
     zed_components \
-    zed_ros2_interfaces
+    zed_ros2_interfaces \
+    realsense2_camera_msgs \
+    realsense2_description \
+    realsense2_camera
 
 # ── 6. Source overlay ───────────────────────────────────────
 echo "[6/6] Adding workspace to ~/.bashrc..."
@@ -132,3 +158,8 @@ echo "        src/avl_slam/config/zed_left.yaml  (serial_number field)"
 echo "        src/avl_slam/config/zed_right.yaml (serial_number field)"
 echo "   3. Verify both cameras: /usr/local/zed/tools/ZED_Explorer"
 echo "   4. ros2 launch avl_slam slam.launch.py"
+echo ""
+echo "   To use Intel RealSense D455 instead of ZED X Left:"
+echo "   1. Build librealsense 2.57.6 from source (see docs/realsense_d455_setup.tex)"
+echo "   2. Downgrade D455 firmware to 5.13.0.50"
+echo "   3. ros2 launch avl_slam slam.launch.py use_realsense:=true"

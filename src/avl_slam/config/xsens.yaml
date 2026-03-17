@@ -13,10 +13,9 @@ xsens_mti_node:
   ros__parameters:
 
     # ── Connection ───────────────────────────────────────────────────
-    # scan_for_devices=true will auto-detect port (recommended for first run)
-    # Set to false + specify port/baudrate if you have multiple USB-serial devices
-    scan_for_devices: true
-    port: "/dev/ttyUSB1"     # only used when scan_for_devices=false
+    # For this workspace, use a fixed port for repeatable startup behavior.
+    scan_for_devices: false
+    port: "/dev/ttyUSB0"
     baudrate: 115200          # increase to 921600 for 400Hz output rates
 
     # ── Frame ────────────────────────────────────────────────────────
