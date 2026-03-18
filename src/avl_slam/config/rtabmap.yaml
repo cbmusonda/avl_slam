@@ -47,17 +47,17 @@ rtabmap:
     # ── RGB-D Input ───────────────────────────────────────────
     # Primary RGB-D source is selected at launch time via use_realsense arg.
     #
-    # ZED X Left (default, use_realsense:=false):
-    #   rgb/image       → /zed_left/zed_node/rgb/image_rect_color
-    #   rgb/camera_info → /zed_left/zed_node/rgb/camera_info
-    #   depth/image     → /zed_left/zed_node/depth/depth_registered
+    # ZED X Right (default, use_realsense:=false):
+    #   rgb/image       → /zed_right/zed_node/rgb/image_rect_color
+    #   rgb/camera_info → /zed_right/zed_node/rgb/camera_info
+    #   depth/image     → /zed_right/zed_node/depth/depth_registered
     #
     # Intel RealSense D455 (use_realsense:=true):
     #   rgb/image       → /camera/camera/color/image_raw
     #   rgb/camera_info → /camera/camera/color/camera_info
     #   depth/image     → /camera/camera/aligned_depth_to_color/image_raw
     #
-    # ZED X Right and ZED X Back cameras run and publish but are not yet fused.
+    # ZED X Left and ZED X Back cameras run and publish but are not yet fused.
     # Multi-camera fusion is a planned future update.
     subscribe_rgb: true
     subscribe_depth: true
@@ -65,8 +65,10 @@ rtabmap:
     approx_sync_max_interval: 0.1     # 100ms window for LiDAR(10Hz) + ZED(15Hz) sync
 
     # ── IMU ──────────────────────────────────────────────────
+    # FIX: imu_tf_prefix is NOT a valid RTAB-Map parameter — removed.
+    # IMU frame is inferred from the incoming sensor_msgs/Imu message header
+    # (frame_id: "imu_link") combined with the static TF base_link→imu_link.
     subscribe_imu: true
-    imu_tf_prefix: "imu_link"
 
     # ── Visual features ───────────────────────────────────────
     Vis/MaxFeatures: "600"
