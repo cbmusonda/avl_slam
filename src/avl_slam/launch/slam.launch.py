@@ -26,6 +26,7 @@ FIX LOG (vs previous version):
   6. imu_tf_prefix removed from rtabmap.yaml (not a valid param — see config/)
   7. sensors_image_sync set true in all ZED configs for depth/RGB alignment
   8. use_sim_time added to zed_back.yaml (was missing)
+    9. Added GPU profile launch args (RealSense GLSL + RTAB-Map tuning defaults)
 """
 
 from launch import LaunchDescription
@@ -55,6 +56,16 @@ def generate_launch_description():
                             description='Path to RTAB-Map database file')
     use_multicamera_arg = DeclareLaunchArgument('use_multicamera', default_value='true',
                             description='true=fuse RealSense front + enabled ZED cameras via rgbd_sync')
+    gpu_profile_arg = DeclareLaunchArgument('gpu_profile', default_value='true',
+                            description='true=enable Jetson GPU profile (RealSense GLSL + lower RTAB-Map CPU load)')
+    realsense_glsl_arg = DeclareLaunchArgument('realsense_glsl', default_value='true',
+                            description='true=enable realsense2_camera accelerate_gpu_with_glsl (requires GLSL build flag)')
+    rtabmap_max_features_arg = DeclareLaunchArgument('rtabmap_max_features', default_value='400',
+                            description='RTAB-Map Vis/MaxFeatures when gpu_profile=true')
+    rtabmap_icp_iterations_arg = DeclareLaunchArgument('rtabmap_icp_iterations', default_value='20',
+                            description='RTAB-Map Icp/Iterations when gpu_profile=true')
+    rtabmap_optimizer_iterations_arg = DeclareLaunchArgument('rtabmap_optimizer_iterations', default_value='60',
+                            description='RTAB-Map Optimizer/Iterations when gpu_profile=true')
     use_xsens_arg = DeclareLaunchArgument('use_xsens', default_value='true',
                             description='true=launch Xsens IMU driver, false=skip it')
     use_zed_left_arg = DeclareLaunchArgument('use_zed_left', default_value='true')
@@ -68,6 +79,11 @@ def generate_launch_description():
     realsense_serial = LaunchConfiguration('realsense_serial')
     database_path    = LaunchConfiguration('database_path')
     use_multicamera  = LaunchConfiguration('use_multicamera')
+    gpu_profile      = LaunchConfiguration('gpu_profile')
+    realsense_glsl   = LaunchConfiguration('realsense_glsl')
+    rtabmap_max_features = LaunchConfiguration('rtabmap_max_features')
+    rtabmap_icp_iterations = LaunchConfiguration('rtabmap_icp_iterations')
+    rtabmap_optimizer_iterations = LaunchConfiguration('rtabmap_optimizer_iterations')
     use_xsens        = LaunchConfiguration('use_xsens')
     use_zed_left     = LaunchConfiguration('use_zed_left')
     use_zed_right    = LaunchConfiguration('use_zed_right')
@@ -150,6 +166,7 @@ def generate_launch_description():
             'depth_module.depth_profile':  '640x480x30',  # FIX #2 (was depth_module.profile)
             'rgb_camera.color_profile':    '640x480x30',  # FIX #2 (was rgb_camera.profile)
             'align_depth.enable':          'true',
+            'accelerate_gpu_with_glsl':    realsense_glsl,
             'pointcloud.enable':           'false',
             'initial_reset':               'true',         # FIX #3 — prevents EAGAIN on boot
             # base_frame_id intentionally left at default ('link') so the full
@@ -326,6 +343,17 @@ def generate_launch_description():
         PathJoinSubstitution([avl_slam_share, 'config', 'rtabmap.yaml']),
         {'database_path': database_path},
         {'Mem/IncrementalMemory': 'true'},
+        {
+            'Vis/MaxFeatures': PythonExpression([
+                "'", rtabmap_max_features, "' if '", gpu_profile, "' == 'true' else '600'"
+            ]),
+            'Icp/Iterations': PythonExpression([
+                "'", rtabmap_icp_iterations, "' if '", gpu_profile, "' == 'true' else '30'"
+            ]),
+            'Optimizer/Iterations': PythonExpression([
+                "'", rtabmap_optimizer_iterations, "' if '", gpu_profile, "' == 'true' else '100'"
+            ]),
+        },
     ]
 
     # RTAB-Map with RealSense D455 as primary RGB-D
@@ -600,6 +628,11 @@ def generate_launch_description():
         realsense_serial_arg,
         database_path_arg,
         use_multicamera_arg,
+        gpu_profile_arg,
+        realsense_glsl_arg,
+        rtabmap_max_features_arg,
+        rtabmap_icp_iterations_arg,
+        rtabmap_optimizer_iterations_arg,
         use_xsens_arg,
         use_zed_left_arg,
         use_zed_right_arg,
