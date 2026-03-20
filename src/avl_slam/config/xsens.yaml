@@ -4,21 +4,18 @@
 #
 # TOPIC MAP — MTi-680G with VRU/AHRS/INS filter mode enabled:
 #
-#   /filter/imu/data           — sensor_msgs/Imu
-#                                  FUSED: orientation (quaternion) + angular velocity + linear accel
-#                                  ← THIS is what RTAB-Map must subscribe to
-#
 #   /imu/data                  — sensor_msgs/Imu
-#                                  RAW: angular velocity + linear accel, NO orientation
-#                                  ← Do NOT use this for RTAB-Map IMU fusion
+#                                  FUSED: orientation (quaternion) + angular velocity + linear accel
+#                                  ← THIS is what RTAB-Map subscribes to
+#                                  Published by ImuPublisher in the driver source.
 #
 #   /imu/mag                   — sensor_msgs/MagneticField
-#   /filter/quaternion         — geometry_msgs/QuaternionStamped
+#   /filter/quaternion         — geometry_msgs/QuaternionStamped  (orientation only)
 #   /filter/free_acceleration  — geometry_msgs/Vector3Stamped
 #   /imu/time_ref              — sensor_msgs/TimeReference (most accurate timestamps)
 #
-# FIX: All RTAB-Map imu remaps must point to /filter/imu/data, NOT /imu/data.
-#      See slam.launch.py for the corrected remap entries.
+# NOTE: /filter/imu/data is NOT published by this driver. The combined fused
+#       sensor_msgs/Imu message is always published to /imu/data.
 
 xsens_mti_node:
   ros__parameters:

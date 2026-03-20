@@ -25,7 +25,7 @@ rtabmap:
     # ── ICP LiDAR Odometry ───────────────────────────────────
     Icp/MaxCorrespondenceDistance: "0.15"
     Icp/PointToPlane: "true"
-    Icp/Iterations: "30"
+    Icp/Iterations: "20"      # GPU profile default (30 without GPU)
     Icp/VoxelSize: "0.3"
     Icp/MaxTranslation: "1.0"
     Icp/CorrespondenceRatio: "0.1"
@@ -71,7 +71,7 @@ rtabmap:
     subscribe_imu: true
 
     # ── Visual features ───────────────────────────────────────
-    Vis/MaxFeatures: "600"
+    Vis/MaxFeatures: "400"    # GPU profile default (600 without GPU)
     Vis/MinInliers: "15"
     Vis/InlierDistance: "0.1"
     SURF/HessianThreshold: "300"
@@ -86,7 +86,7 @@ rtabmap:
 
     # ── Graph optimization ────────────────────────────────────
     Optimizer/Strategy: "1"
-    Optimizer/Iterations: "100"
+    Optimizer/Iterations: "60" # GPU profile default (100 without GPU)
     Optimizer/Epsilon: "0.00001"
     Optimizer/Robust: "true"
 

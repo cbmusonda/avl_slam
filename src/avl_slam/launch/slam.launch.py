@@ -17,7 +17,8 @@ RealSense D455 prerequisites (see docs/realsense_d455_setup.tex):
   - realsense-ros 4.56.4 built from source in this workspace
 
 FIX LOG (vs previous version):
-  1. IMU topic remap: /imu/data → /filter/imu/data (DEMCON driver publishes here)
+  1. IMU topic remap corrected: driver publishes fused IMU (orientation+gyro+accel) to /imu/data,
+       NOT /filter/imu/data. All RTAB-Map imu remaps point to /imu/data.
   2. RealSense profile params: depth_module.profile → depth_module.depth_profile
                                rgb_camera.profile   → rgb_camera.color_profile
   3. RealSense initial_reset:=true added to prevent USB EAGAIN race on boot
@@ -27,6 +28,8 @@ FIX LOG (vs previous version):
   7. sensors_image_sync set true in all ZED configs for depth/RGB alignment
   8. use_sim_time added to zed_back.yaml (was missing)
     9. Added GPU profile launch args (RealSense GLSL + RTAB-Map tuning defaults)
+   10. rtabmap_multicam_3/4 now use rtabmap_common_params (were missing gpu_profile tuning)
+   11. Switched RTAB-Map feature detector to ORB with GPU (ORB/GPU: true in rtabmap.yaml)
 """
 
 from launch import LaunchDescription
@@ -43,11 +46,16 @@ def generate_launch_description():
 
     # ── Launch Arguments ──────────────────────────────────────────────
     use_rviz_arg      = DeclareLaunchArgument('use_rviz',      default_value='true')
+    rviz_config_arg   = DeclareLaunchArgument('rviz_config',
+                            default_value=PathJoinSubstitution(
+                                [FindPackageShare('avl_slam'), 'config', 'slam.rviz']
+                            ),
+                            description='Path to RViz2 config file')
     localization_arg  = DeclareLaunchArgument('localization',  default_value='false',
                             description='true=localization only, false=mapping+localization')
     velodyne_ip_arg   = DeclareLaunchArgument('velodyne_ip',   default_value='192.168.13.11')
     velodyne_port_arg = DeclareLaunchArgument('velodyne_port', default_value='2368')
-    use_realsense_arg = DeclareLaunchArgument('use_realsense', default_value='false',
+    use_realsense_arg = DeclareLaunchArgument('use_realsense', default_value='true',
                             description='true=RealSense D455 as primary RGB-D, false=ZED X Right')
     realsense_serial_arg = DeclareLaunchArgument('realsense_serial', default_value='',
                             description='D455 serial number (leave empty for first available)')
@@ -58,8 +66,8 @@ def generate_launch_description():
                             description='true=fuse RealSense front + enabled ZED cameras via rgbd_sync')
     gpu_profile_arg = DeclareLaunchArgument('gpu_profile', default_value='true',
                             description='true=enable Jetson GPU profile (RealSense GLSL + lower RTAB-Map CPU load)')
-    realsense_glsl_arg = DeclareLaunchArgument('realsense_glsl', default_value='true',
-                            description='true=enable realsense2_camera accelerate_gpu_with_glsl (requires GLSL build flag)')
+    realsense_glsl_arg = DeclareLaunchArgument('realsense_glsl', default_value='false',
+                            description='Enable realsense2_camera GLSL GPU acceleration. Disabled: librealsense2-gl.so.2.56 is ABI-incompatible with librealsense2.so.2.57.6 on this system.')
     rtabmap_max_features_arg = DeclareLaunchArgument('rtabmap_max_features', default_value='400',
                             description='RTAB-Map Vis/MaxFeatures when gpu_profile=true')
     rtabmap_icp_iterations_arg = DeclareLaunchArgument('rtabmap_icp_iterations', default_value='20',
@@ -73,6 +81,7 @@ def generate_launch_description():
     use_zed_back_arg = DeclareLaunchArgument('use_zed_back', default_value='true')
 
     use_rviz         = LaunchConfiguration('use_rviz')
+    rviz_config      = LaunchConfiguration('rviz_config')
     velodyne_ip      = LaunchConfiguration('velodyne_ip')
     velodyne_port    = LaunchConfiguration('velodyne_port')
     use_realsense    = LaunchConfiguration('use_realsense')
@@ -245,10 +254,9 @@ def generate_launch_description():
     # No external Madgwick filter is needed.
     #
     # Topic published by DEMCON ros2_xsens_mti_driver:
-    #   /filter/imu/data  — sensor_msgs/Imu (fused: orientation + gyro + accel)
-    #   /imu/data         — sensor_msgs/Imu (raw accel + gyro, NO orientation)
-    #
-    # FIX #1: RTAB-Map remaps must point to /filter/imu/data, NOT /imu/data.
+    #   /imu/data         — sensor_msgs/Imu (fused: orientation + gyro + accel)
+    #                       ImuPublisher always publishes the combined message here.
+    #                       /filter/imu/data is never published by this driver.
     xsens_imu = Node(
         package='ros2_xsens_mti_driver',
         executable='xsens_mti_node',
@@ -339,21 +347,13 @@ def generate_launch_description():
     #   1) single-camera mode (legacy): one RGB-D source selected by use_realsense
     #   2) multi-camera mode: RealSense front + enabled ZED streams via rgbd_sync
 
+    # GPU profile values (Vis/MaxFeatures, Icp/Iterations, Optimizer/Iterations) are set
+    # directly in rtabmap.yaml to avoid ROS 2 param type conflicts (RTAB-Map declares them
+    # as string; launch system serializes digit-only LaunchConfiguration values as integers).
     rtabmap_common_params = [
         PathJoinSubstitution([avl_slam_share, 'config', 'rtabmap.yaml']),
         {'database_path': database_path},
         {'Mem/IncrementalMemory': 'true'},
-        {
-            'Vis/MaxFeatures': PythonExpression([
-                "'", rtabmap_max_features, "' if '", gpu_profile, "' == 'true' else '600'"
-            ]),
-            'Icp/Iterations': PythonExpression([
-                "'", rtabmap_icp_iterations, "' if '", gpu_profile, "' == 'true' else '30'"
-            ]),
-            'Optimizer/Iterations': PythonExpression([
-                "'", rtabmap_optimizer_iterations, "' if '", gpu_profile, "' == 'true' else '100'"
-            ]),
-        },
     ]
 
     # RTAB-Map with RealSense D455 as primary RGB-D
@@ -368,7 +368,7 @@ def generate_launch_description():
             ('rgb/image',       '/camera/camera/color/image_raw'),
             ('rgb/camera_info', '/camera/camera/color/camera_info'),
             ('depth/image',     '/camera/camera/aligned_depth_to_color/image_raw'),
-            ('imu',             '/filter/imu/data'),   # FIX #1
+            ('imu',             '/imu/data'),          # FIX #1 (driver publishes fused IMU here)
         ],
         condition=IfCondition(PythonExpression(["'", use_realsense, "' == 'true' and '", use_multicamera, "' != 'true'"])),
     )
@@ -385,7 +385,7 @@ def generate_launch_description():
             ('rgb/image',       '/zed_right/zed_node/rgb/color/rect/image'),
             ('rgb/camera_info', '/zed_right/zed_node/rgb/color/rect/camera_info'),
             ('depth/image',     '/zed_right/zed_node/depth/depth_registered'), # FIX #4
-            ('imu',             '/filter/imu/data'),   # FIX #1
+            ('imu',             '/imu/data'),          # FIX #1 (driver publishes fused IMU here)
         ],
         condition=IfCondition(PythonExpression(["'", use_realsense, "' != 'true' and '", use_multicamera, "' != 'true' and '", use_zed_right, "' == 'true'"])),
     )
@@ -395,21 +395,16 @@ def generate_launch_description():
         executable='rtabmap',
         name='rtabmap',
         output='screen',
-        parameters=[
-            PathJoinSubstitution([avl_slam_share, 'config', 'rtabmap.yaml']),
-            {
-                'Mem/IncrementalMemory': 'true',
-                'subscribe_rgb': False,
-                'subscribe_depth': False,
-                'subscribe_rgbd': True,
-                'rgbd_cameras': 4,
-                'approx_sync': True,
-                'database_path': database_path,
-            },
-        ],
+        parameters=rtabmap_common_params + [{
+            'subscribe_rgb': False,
+            'subscribe_depth': False,
+            'subscribe_rgbd': True,
+            'rgbd_cameras': 4,
+            'approx_sync': True,
+        }],
         remappings=[
             ('scan_cloud', '/velodyne_points'),
-            ('imu', '/filter/imu/data'),
+            ('imu', '/imu/data'),          # FIX #1 (driver publishes fused IMU here)
             ('rgbd_image0', '/realsense_front/rgbd_image'),
             ('rgbd_image1', '/zed_left/rgbd_image'),
             ('rgbd_image2', '/zed_right/rgbd_image'),
@@ -428,21 +423,16 @@ def generate_launch_description():
         executable='rtabmap',
         name='rtabmap',
         output='screen',
-        parameters=[
-            PathJoinSubstitution([avl_slam_share, 'config', 'rtabmap.yaml']),
-            {
-                'Mem/IncrementalMemory': 'true',
-                'subscribe_rgb': False,
-                'subscribe_depth': False,
-                'subscribe_rgbd': True,
-                'rgbd_cameras': 3,
-                'approx_sync': True,
-                'database_path': database_path,
-            },
-        ],
+        parameters=rtabmap_common_params + [{
+            'subscribe_rgb': False,
+            'subscribe_depth': False,
+            'subscribe_rgbd': True,
+            'rgbd_cameras': 3,
+            'approx_sync': True,
+        }],
         remappings=[
             ('scan_cloud', '/velodyne_points'),
-            ('imu', '/filter/imu/data'),
+            ('imu', '/imu/data'),          # FIX #1 (driver publishes fused IMU here)
             ('rgbd_image0', '/realsense_front/rgbd_image'),
             ('rgbd_image1', '/zed_left/rgbd_image'),
             ('rgbd_image2', '/zed_back/rgbd_image'),
@@ -452,6 +442,34 @@ def generate_launch_description():
             "' == 'true' and '", use_zed_left,
             "' == 'true' and '", use_zed_right,
             "' != 'true' and '", use_zed_back, "' == 'true'",
+        ])),
+    )
+
+    # RTAB-Map: 3 ZED cameras only (use_multicamera=true, use_realsense=false) — DEFAULT mode
+    rtabmap_multicam_zed3 = Node(
+        package='rtabmap_slam',
+        executable='rtabmap',
+        name='rtabmap',
+        output='screen',
+        parameters=rtabmap_common_params + [{
+            'subscribe_rgb': False,
+            'subscribe_depth': False,
+            'subscribe_rgbd': True,
+            'rgbd_cameras': 3,
+            'approx_sync': True,
+        }],
+        remappings=[
+            ('scan_cloud', '/velodyne_points'),
+            ('imu', '/imu/data'),
+            ('rgbd_image0', '/zed_left/rgbd_image'),
+            ('rgbd_image1', '/zed_right/rgbd_image'),
+            ('rgbd_image2', '/zed_back/rgbd_image'),
+        ],
+        condition=IfCondition(PythonExpression([
+            "'", use_multicamera, "' == 'true' and '", use_realsense,
+            "' != 'true' and '", use_zed_left,
+            "' == 'true' and '", use_zed_right,
+            "' == 'true' and '", use_zed_back, "' == 'true'",
         ])),
     )
 
@@ -470,7 +488,7 @@ def generate_launch_description():
             ('rgb/image',       '/camera/camera/color/image_raw'),
             ('rgb/camera_info', '/camera/camera/color/camera_info'),
             ('depth/image',     '/camera/camera/aligned_depth_to_color/image_raw'),
-            ('imu',             '/filter/imu/data'),   # FIX #1
+            ('imu',             '/imu/data'),          # FIX #1 (driver publishes fused IMU here)
         ],
         condition=IfCondition(PythonExpression(["'", use_realsense, "' == 'true' and '", use_multicamera, "' != 'true'"])),
     )
@@ -486,7 +504,7 @@ def generate_launch_description():
             ('rgb/image',       '/zed_right/zed_node/rgb/color/rect/image'),
             ('rgb/camera_info', '/zed_right/zed_node/rgb/color/rect/camera_info'),
             ('depth/image',     '/zed_right/zed_node/depth/depth_registered'), # FIX #4
-            ('imu',             '/filter/imu/data'),   # FIX #1
+            ('imu',             '/imu/data'),          # FIX #1 (driver publishes fused IMU here)
         ],
         condition=IfCondition(PythonExpression(["'", use_realsense, "' != 'true' and '", use_multicamera, "' != 'true' and '", use_zed_right, "' == 'true'"])),
     )
@@ -508,7 +526,7 @@ def generate_launch_description():
         ],
         remappings=[
             ('scan_cloud', '/velodyne_points'),
-            ('imu', '/filter/imu/data'),
+            ('imu', '/imu/data'),          # FIX #1 (driver publishes fused IMU here)
             ('rgbd_image0', '/realsense_front/rgbd_image'),
             ('rgbd_image1', '/zed_left/rgbd_image'),
             ('rgbd_image2', '/zed_right/rgbd_image'),
@@ -539,7 +557,7 @@ def generate_launch_description():
         ],
         remappings=[
             ('scan_cloud', '/velodyne_points'),
-            ('imu', '/filter/imu/data'),
+            ('imu', '/imu/data'),          # FIX #1 (driver publishes fused IMU here)
             ('rgbd_image0', '/realsense_front/rgbd_image'),
             ('rgbd_image1', '/zed_left/rgbd_image'),
             ('rgbd_image2', '/zed_back/rgbd_image'),
@@ -549,6 +567,36 @@ def generate_launch_description():
             "' == 'true' and '", use_zed_left,
             "' == 'true' and '", use_zed_right,
             "' != 'true' and '", use_zed_back, "' == 'true'",
+        ])),
+    )
+
+    rtabmap_viz_multicam_zed3 = Node(
+        package='rtabmap_viz',
+        executable='rtabmap_viz',
+        name='rtabmap_viz',
+        output='screen',
+        parameters=[
+            PathJoinSubstitution([avl_slam_share, 'config', 'rtabmap.yaml']),
+            {
+                'subscribe_rgb': False,
+                'subscribe_depth': False,
+                'subscribe_rgbd': True,
+                'rgbd_cameras': 3,
+                'approx_sync': True,
+            },
+        ],
+        remappings=[
+            ('scan_cloud', '/velodyne_points'),
+            ('imu', '/imu/data'),
+            ('rgbd_image0', '/zed_left/rgbd_image'),
+            ('rgbd_image1', '/zed_right/rgbd_image'),
+            ('rgbd_image2', '/zed_back/rgbd_image'),
+        ],
+        condition=IfCondition(PythonExpression([
+            "'", use_multicamera, "' == 'true' and '", use_realsense,
+            "' != 'true' and '", use_zed_left,
+            "' == 'true' and '", use_zed_right,
+            "' == 'true' and '", use_zed_back, "' == 'true'",
         ])),
     )
 
@@ -617,10 +665,21 @@ def generate_launch_description():
         condition=IfCondition(use_realsense),
     )
 
+    # ── 11. RViz2 ─────────────────────────────────────────────────────
+    rviz2 = Node(
+        package='rviz2',
+        executable='rviz2',
+        name='rviz2',
+        arguments=['-d', rviz_config],
+        output='screen',
+        condition=IfCondition(use_rviz),
+    )
+
     # ── Build launch description ──────────────────────────────────────
     nodes = [
         # Args
         use_rviz_arg,
+        rviz_config_arg,
         localization_arg,
         velodyne_ip_arg,
         velodyne_port_arg,
@@ -666,7 +725,11 @@ def generate_launch_description():
         rtabmap_zed,
         rtabmap_multicam_4,
         rtabmap_multicam_3,
+        rtabmap_multicam_zed3,   # DEFAULT: 3 ZED cameras, no RealSense
     ]
+
+    # RViz2 — always alongside rtabmap_viz when use_rviz=true
+    nodes.append(rviz2)
 
     # Viz — launch matching variant only when use_rviz=true (FIX #5)
     nodes.append(GroupAction(
@@ -696,6 +759,15 @@ def generate_launch_description():
                     "' == 'true' and '", use_zed_left,
                     "' == 'true' and '", use_zed_right,
                     "' != 'true' and '", use_zed_back, "' == 'true'",
+                ])),
+            ),
+            GroupAction(
+                actions=[rtabmap_viz_multicam_zed3],
+                condition=IfCondition(PythonExpression([
+                    "'", use_multicamera, "' == 'true' and '", use_realsense,
+                    "' != 'true' and '", use_zed_left,
+                    "' == 'true' and '", use_zed_right,
+                    "' == 'true' and '", use_zed_back, "' == 'true'",
                 ])),
             ),
         ],
