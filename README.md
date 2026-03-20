@@ -1,30 +1,32 @@
 # AVL SLAM Workspace
 
-**Sensors:** Velodyne VLP-16 · ZED X Left · ZED X Right · ZED X Back · Intel RealSense D455 · Xsens MTi-680G IMU  
-**SLAM:** RTAB-Map (LiDAR-ICP odometry + RGB-D loop closure + IMU fusion)  
-**Platform:** ROS 2 Humble · Ubuntu aarch64 · Jetson / JetPack 6
+**Sensors:** Velodyne VLP-16 · ZED X Left · ZED X Right · ZED X Back · Intel RealSense D455 · Xsens MTi-680G IMU
+**SLAM:** RTAB-Map (LiDAR-ICP odometry + RGB-D loop closure + IMU fusion)
+**Platform:** ROS 2 Humble · Ubuntu aarch64 · Jetson Orin AGX / JetPack 6
 
-> **RGB-D source** is selectable at launch time:
-> - `use_realsense:=false` (default) → ZED X **Right** camera (reliable; confirmed working)
-> - `use_realsense:=true` → Intel RealSense D455
+> **Default mode:** All 4 cameras (RealSense D455 + ZED X Left/Right/Back) fused simultaneously in RTAB-Map multicam mode (`rgbd_cameras: 4`). No single primary source — all cameras contribute equally to loop closure and mapping.
 >
-> All three ZED X cameras always run regardless of this setting.
+> Override with `use_realsense:=false` to use ZED cameras only (3-camera multicam).
 
 ---
 
-## Bug Fix Summary (vs previous version)
+## Bug Fix Summary
 
 | # | File | What was wrong | Fix |
 |---|------|----------------|-----|
-| 1 | `slam.launch.py` | IMU remap pointed to `/imu/data` (raw, no orientation) | Changed to `/filter/imu/data` (fused, with orientation) in all 4 nodes |
+| 1 | `slam.launch.py` | IMU remap pointed to `/filter/imu/data` — never published by DEMCON driver | Changed to `/imu/data` (fused orientation + gyro + accel) in all RTAB-Map nodes |
 | 2 | `slam.launch.py` | RealSense profile params `depth_module.profile` / `rgb_camera.profile` are realsense-ros 3.x API — silently ignored in 4.x | Changed to `depth_module.depth_profile` / `rgb_camera.color_profile` |
 | 3 | `slam.launch.py` | No `initial_reset` — USB EAGAIN race on Jetson boot | Added `initial_reset:=true` to RealSense launch args |
-| 4 | `slam.launch.py` | Default RGB-D source was ZED left (flaky) | Swapped to ZED right (confirmed reliable) in `rtabmap_zed` + both viz nodes |
-| 5 | `slam.launch.py` | `rtabmap_viz_realsense` had no condition guard — always launched | Added `condition=IfCondition(use_realsense)` |
+| 4 | `slam.launch.py` | Default RGB-D source was ZED left (flaky) | Swapped to ZED right in single-camera fallback mode |
+| 5 | `slam.launch.py` | `rtabmap_viz_realsense` had no condition guard — always launched | Added matching condition guards to all viz nodes |
 | 6 | `rtabmap.yaml` | `imu_tf_prefix: "imu_link"` is not a valid RTAB-Map parameter | Removed; IMU frame comes from message header + static TF |
 | 7 | `zed_*.yaml` | `sensors.sensors_image_sync: false` — depth and RGB timestamps can drift | Changed to `true` in all three ZED configs |
 | 8 | `zed_back.yaml` | `use_sim_time` field missing | Added `use_sim_time: false` |
 | 9 | `localization.launch.py` | `localization:=true` and `database_path` were never forwarded to `slam.launch.py` | Fixed pass-through of both arguments |
+| 10 | `slam.launch.py` | No RTAB-Map node launched with default args (multicam ZED-only case missing) | Added `rtabmap_multicam_zed3` node for `use_multicamera=true, use_realsense=false` |
+| 11 | `slam.launch.py` | `rtabmap_multicam_3/4` missing `rtabmap_common_params` — GPU tuning not applied | Fixed to use `rtabmap_common_params` |
+| 12 | `slam.launch.py` + `rtabmap.yaml` | `PythonExpression` GPU overrides caused ROS 2 param type conflict (string vs integer) | Removed overrides; set GPU profile values directly in `rtabmap.yaml` |
+| 13 | `realsense2_camera` | `librealsense2-gl.so.2.56` ABI-incompatible with runtime `librealsense2.so.2.57.6` | Rebuilt with `-DBUILD_ACCELERATE_GPU_WITH_GLSL=OFF`; `realsense_glsl` default set to `false` |
 
 ---
 
@@ -33,17 +35,20 @@
 ```
 avl_slam_ws/
 ├── setup_workspace.sh
+├── README.md
+├── SLAM.md                             ← hardware checklist + unit tests + launch reference
 ├── docs/
-│   └── realsense_d455_setup.tex
+│   └── realsense_d455_setup.tex        ← full RealSense build/firmware setup guide
 └── src/
     ├── avl_slam/                       ← custom package (configs + launches)
     │   ├── config/
-    │   │   ├── rtabmap.yaml            ← RTAB-Map tuning params
+    │   │   ├── rtabmap.yaml            ← RTAB-Map tuning params (GPU profile defaults)
     │   │   ├── vlp16.yaml              ← Velodyne conversion settings
     │   │   ├── xsens.yaml              ← Xsens IMU driver settings
     │   │   ├── imu_filter.yaml         ← Madgwick filter (reserved; not used)
+    │   │   ├── slam.rviz               ← RViz2 visualization config
     │   │   ├── zed_left.yaml           ← ZED X left camera config
-    │   │   ├── zed_right.yaml          ← ZED X right camera config (primary)
+    │   │   ├── zed_right.yaml          ← ZED X right camera config
     │   │   └── zed_back.yaml           ← ZED X rear camera config
     │   └── launch/
     │       ├── slam.launch.py          ← full SLAM pipeline
@@ -52,6 +57,7 @@ avl_slam_ws/
     ├── rtabmap/                        ← from source (apt version 0.22.1 too old)
     ├── rtabmap_ros/                    ← from source
     ├── zed-ros2-wrapper/               ← Stereolabs official wrapper
+    ├── zed-ros2-interfaces/            ← ZED ROS 2 message definitions
     └── ros2_xsens_mti_driver/          ← DEMCON fork
 ```
 
@@ -76,8 +82,6 @@ Your ZED X serial numbers are already set in `slam.launch.py` and config files:
 | zed_left | 43779087 | port 7 (`/dev/i2c-10`) |
 | zed_right | 47753729 | port 6 (`/dev/i2c-9`) |
 | zed_back | 49910017 | set in `zed_back.yaml` |
-
-To verify: `grep serial_number ~/avl_slam_ws/src/avl_slam/launch/slam.launch.py`
 
 ### 3. Hardware checklist before every launch
 
@@ -107,17 +111,17 @@ source install/setup.bash
 ### 5. Launch SLAM
 
 ```bash
-# Standard (ZED right as RGB-D, with visualizer)
+# Full system — all 4 cameras (default)
 ros2 launch avl_slam slam.launch.py
+
+# ZED cameras only (no RealSense)
+ros2 launch avl_slam slam.launch.py use_realsense:=false
 
 # Headless — recommended on Jetson to save GPU memory
 ros2 launch avl_slam slam.launch.py use_rviz:=false
 
-# RealSense D455 as RGB-D source
-ros2 launch avl_slam slam.launch.py use_realsense:=true use_rviz:=false
-
-# Custom Velodyne IP
-ros2 launch avl_slam slam.launch.py velodyne_ip:=192.168.13.11
+# Custom database path
+ros2 launch avl_slam slam.launch.py database_path:=/path/to/my_map.db
 ```
 
 ### 6. Localization against a saved map
@@ -126,84 +130,97 @@ ros2 launch avl_slam slam.launch.py velodyne_ip:=192.168.13.11
 ros2 launch avl_slam localization.launch.py database_path:=~/.ros/rtabmap.db
 ```
 
----
+### 7. View a saved map
 
-## IMU Integration — Important Notes
-
-The **DEMCON `ros2_xsens_mti_driver`** publishes two different IMU topics:
-
-| Topic | Content | Use for |
-|-------|---------|---------|
-| `/filter/imu/data` | Fused: orientation + angular velocity + linear accel | **RTAB-Map** — this is what you want |
-| `/imu/data` | Raw: angular velocity + linear accel only (no orientation) | Debugging raw data only |
-
-RTAB-Map requires the **fused** orientation quaternion to integrate IMU into the pose graph.  
-All `imu` remaps in `slam.launch.py` now correctly point to `/filter/imu/data`.
-
-To verify IMU is reaching RTAB-Map after launch:
 ```bash
-ros2 topic hz /filter/imu/data        # Expected: ~100 Hz
-ros2 topic echo /filter/imu/data --once | grep orientation
-# Expected: x/y/z/w values that are NOT all 0.0
+rtabmap-databaseViewer ~/.ros/rtabmap.db
 ```
 
 ---
 
-## RealSense D455 Notes
+## Launch Arguments
 
-The D455 requires specific setup on JetPack 6. See `docs/realsense_d455_setup.tex` for the full procedure. Summary:
+| Argument | Default | Description |
+|---|---|---|
+| `use_realsense` | `true` | Enable RealSense D455 |
+| `use_multicamera` | `true` | Fuse all cameras in one RTAB-Map graph |
+| `use_rviz` | `true` | Open RViz2 + rtabmap_viz |
+| `use_xsens` | `true` | Launch Xsens IMU driver |
+| `use_zed_left` | `true` | Launch ZED X Left |
+| `use_zed_right` | `true` | Launch ZED X Right |
+| `use_zed_back` | `true` | Launch ZED X Back |
+| `database_path` | `~/.ros/rtabmap.db` | RTAB-Map database path |
+| `localization` | `false` | `true` = localization only (no new nodes) |
+| `velodyne_ip` | `192.168.13.11` | Velodyne LiDAR IP address |
 
-- **librealsense:** Must be built from source v2.57.6 with RSUSB backend
-- **Firmware:** Must be exactly `5.13.0.50` — v5.16+ causes `bad_optional_access` crash
-- **D455 IMU disabled** — RSUSB backend on JetPack 6 cannot access HID. Xsens handles IMU.
-- **`control_transfer returned error` warnings** are normal with RSUSB and do not affect streaming.
+---
 
-Standalone test (before running full SLAM):
-```bash
-ros2 launch realsense2_camera rs_launch.py \
-  camera_name:=camera \
-  enable_color:=true \
-  enable_depth:=true \
-  enable_gyro:=false \
-  enable_accel:=false \
-  align_depth.enable:=true \
-  depth_module.depth_profile:=640x480x30 \
-  rgb_camera.color_profile:=640x480x30 \
-  initial_reset:=true
+## RTAB-Map Multicam Modes
+
+The launch file selects the RTAB-Map node automatically based on launch args:
+
+| Mode | Args | Cameras fused |
+|---|---|---|
+| **4-camera (default)** | `use_multicamera=true use_realsense=true` | RealSense + ZED Left/Right/Back |
+| 3-camera ZED only | `use_multicamera=true use_realsense=false` | ZED Left/Right/Back |
+| Single RealSense | `use_multicamera=false use_realsense=true` | RealSense only |
+| Single ZED right | `use_multicamera=false use_realsense=false` | ZED Right only |
+
+---
+
+## IMU Integration Notes
+
+The **DEMCON `ros2_xsens_mti_driver`** publishes to these topics:
+
+| Topic | Content |
+|-------|---------|
+| `/imu/data` | **Fused:** orientation (quaternion) + angular velocity + linear accel ← **RTAB-Map uses this** |
+| `/imu/mag` | Magnetometer |
+| `/filter/quaternion` | Orientation only |
+| `/filter/free_acceleration` | Acceleration without gravity |
+| `/imu/time_ref` | Most accurate timestamps |
+
+> **Note:** `/filter/imu/data` is **NOT published** by this driver. All RTAB-Map `imu` remaps point to `/imu/data`.
+
+---
+
+## Static TF Tree
+
+```
+base_link
+├── velodyne                   (x=0.75,  y=0.0,  z=0.3,  yaw=0°)
+├── imu_link                   (x=0.7,   y=0.0,  z=0.0,  yaw=0°)
+├── zed_left_camera_center     (x=-0.6,  y=0.35, z=0.6,  yaw=+90°)
+├── zed_right_camera_center    (x=0.6,   y=0.35, z=0.6,  yaw=-90°)
+├── zed_back_camera_center     (x=-0.75, y=0.0,  z=0.6,  yaw=180°)
+└── camera_link                (x=0.35,  y=0.0,  z=0.75, yaw=0°)  ← RealSense only
 ```
 
 ---
 
-## ZED X Camera Notes
+## GPU Profile (Jetson Orin AGX)
 
-All three ZED X cameras connect via GMSL. If any camera fails to start:
+All ZED X cameras are pinned to GPU 0 (`general.gpu_id: 0`). RTAB-Map parameters are tuned for Jetson GPU throughput:
 
-```bash
-# Restart GMSL daemon (fixes most ZED startup failures)
-sudo systemctl restart nvargus-daemon
-sleep 3
-ros2 launch avl_slam slam.launch.py
-```
+| Parameter | Value | Non-GPU value |
+|---|---|---|
+| `Icp/Iterations` | 20 | 30 |
+| `Vis/MaxFeatures` | 400 | 600 |
+| `Optimizer/Iterations` | 60 | 100 |
 
-ZED left camera (`43779087`) has intermittent startup failures in some configurations.  
-ZED right (`47753729`) is the confirmed-reliable primary RGB-D source for RTAB-Map.
+RealSense GLSL GPU acceleration is **disabled** (`realsense_glsl=false`) — `librealsense2-gl.so.2.56` is ABI-incompatible with runtime `librealsense2.so.2.57.6` on this system.
 
 ---
 
-## RTAB-Map Version Note
+## RealSense D455 Prerequisites
 
-Both `rtabmap` core and `rtabmap_ros` are built from source (`~0.23.x`).  
-The apt version (`0.22.1`) is incompatible with the database format written by newer builds.
+- **librealsense:** v2.57.6 built from source with RSUSB backend (`-DFORCE_RSUSB_BACKEND=ON`, `-DBUILD_ACCELERATE_GPU_WITH_GLSL=OFF`)
+- **Firmware:** D455 downgraded to `5.13.0.50`
+- **Remove:** `sudo apt remove ros-humble-librealsense2` (conflicts with source build)
+- **realsense-ros:** v4.56.4 built from source in this workspace
+- **LD_LIBRARY_PATH:** `/usr/local/lib` is set in `~/.bashrc` (required for `librealsense2.so.2.56` symlink resolution)
 
-If you see:
-```
-Opened database version (0.23.x) is more recent than rtabmap installed version (0.22.1)
-```
-Delete the old database:
-```bash
-rm ~/.ros/rtabmap.db
-ros2 launch avl_slam slam.launch.py
-```
+See `docs/realsense_d455_setup.tex` for full setup instructions.
 
 ---
 
@@ -211,14 +228,15 @@ ros2 launch avl_slam slam.launch.py
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| IMU silent / RTAB-Map not using IMU | Old `/imu/data` remap (fixed in this version) | Confirm topic: `ros2 topic hz /filter/imu/data` |
+| IMU silent / RTAB-Map not using IMU | Wrong `/filter/imu/data` remap (fixed) | Confirm: `ros2 topic hz /imu/data` → ~100 Hz |
 | RealSense depth streams don't start | Wrong profile param names (fixed) or USB EAGAIN | Fixed with correct profile params + `initial_reset:=true` |
 | RealSense `bad_optional_access` crash | Firmware ≥5.16 | Downgrade to 5.13.0.50 |
-| Velodyne at 70 Hz instead of 10 Hz | Duplicate driver nodes from previous launch | `killall velodyne_driver_node velodyne_transform_node && pkill -f "ros2 launch"` |
+| RealSense `undefined symbol` crash | `librealsense2-gl` ABI mismatch (fixed) | Rebuild with `-DBUILD_ACCELERATE_GPU_WITH_GLSL=OFF` |
+| No RTAB-Map node launches with default args | Missing multicam ZED-only node (fixed) | Fixed: `rtabmap_multicam_zed3` added |
+| RTAB-Map `InvalidParameterTypeException` | GPU param overrides serialized as integers (fixed) | Fixed: GPU values set in `rtabmap.yaml` directly |
+| Velodyne at 70 Hz instead of 10 Hz | Duplicate driver nodes from previous launch | `pkill -9 -f "ros2\|velodyne\|rtabmap\|zed"` |
 | ZED camera not detected | nvargus-daemon not running | `sudo systemctl restart nvargus-daemon` |
-| ICP `ratio=0.000000` | Velodyne at 70 Hz or `Icp/MaxTranslation` too small | Kill duplicate nodes; verify `ros2 param get /icp_odometry Icp/MaxTranslation` = `1.0` |
-| RTAB-Map not creating map nodes | Vehicle hasn't moved enough | Move ≥0.1m or ≥0.05rad, then check `/rtabmap/mapData` |
-| conda Python breaks build | conda Python intercepts catkin_pkg | `conda deactivate` before `colcon build` |
-| RealSense USB busy on relaunch | Previous node still holds device | `pkill -f realsense2_camera_node && sleep 2` |
-| Localization mode ignored | `localization` arg not forwarded (fixed in this version) | Use updated `localization.launch.py` |
-| `imu_tf_prefix` warning in RTAB-Map | Not a valid param (fixed in this version) | Use updated `rtabmap.yaml` |
+| RTAB-Map not creating map nodes | Vehicle hasn't moved enough | Move ≥0.1m (`RGBD/LinearUpdate`) |
+| Map empty after 5+ minutes | Car was stationary the whole time | Drive the vehicle |
+| conda Python breaks build | conda intercepts catkin_pkg | `conda deactivate` before `colcon build` |
+| Database version mismatch | Old apt rtabmap database opened by newer build | `rm ~/.ros/rtabmap.db` |

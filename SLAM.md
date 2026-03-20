@@ -220,38 +220,33 @@ ros2 topic list | grep -E "imu|filter"
 **Expected:**
 ```
 /filter/free_acceleration
-/filter/imu/data
 /filter/quaternion
 /imu/data
 /imu/mag
 /imu/time_ref
 ```
+> **Note:** `/filter/imu/data` is NOT published by this driver — do not look for it.
 
 #### A.3 Check publish rate
 ```bash
-ros2 topic hz /filter/imu/data
+ros2 topic hz /imu/data
 ```
 **Expected:** `average rate: ~100.0 Hz` (at baudrate 115200)
 
-```bash
-ros2 topic hz /imu/data
-```
-**Expected:** `average rate: ~100.0 Hz`
-
 #### A.4 Verify fused orientation is present
 ```bash
-ros2 topic echo /filter/imu/data --once
+ros2 topic echo /imu/data --once
 ```
-**Expected:** `orientation.w` is close to `1.0` (or some non-zero quaternion).  
+**Expected:** `orientation.w` is close to `1.0` (or some non-zero quaternion).
 A fully zero quaternion means the filter hasn't converged yet — let the IMU sit still for ~5 seconds.
 
-> **Critical:** `/filter/imu/data` must have a valid orientation quaternion.  
-> `/imu/data` does NOT contain orientation — it is raw accel + gyro only.  
-> RTAB-Map subscribes to `/filter/imu/data`. Using `/imu/data` gives RTAB-Map no heading.
+> **Critical:** `/imu/data` from the DEMCON driver is the **fully fused** message containing
+> orientation (quaternion) + angular velocity + linear acceleration.
+> RTAB-Map subscribes to `/imu/data`. This is correct.
 
 #### A.5 Check frame_id
 ```bash
-ros2 topic echo /filter/imu/data --once | grep frame_id
+ros2 topic echo /imu/data --once | grep frame_id
 ```
 **Expected:** `frame_id: imu_link`
 
@@ -556,14 +551,17 @@ source ~/avl_slam_ws/install/setup.bash
 
 ---
 
-### 5.1 Standard SLAM — ZED right as RGB-D (default)
+### 5.1 Full system — all 4 cameras (default)
 ```bash
 ros2 launch avl_slam slam.launch.py
 ```
 **Confirm in output:**
 ```
 [velodyne_driver] expected frequency: 9.921 (Hz)
+[zed_left.zed_node]  Camera SN: 43779087
 [zed_right.zed_node] Camera SN: 47753729
+[zed_back.zed_node]  Camera SN: 49910017
+[camera/camera] Device Name: Intel RealSense D455  FW: 5.13.0.50
 [xsens_mti_node] Device: MTi-680G
 [icp_odometry] ratio=0.5xx, std dev=...
 [rtabmap] SLAM mode (Mem/IncrementalMemory=true)
@@ -571,22 +569,16 @@ ros2 launch avl_slam slam.launch.py
 
 ---
 
-### 5.2 Headless (recommended on Jetson)
+### 5.2 ZED cameras only (no RealSense)
 ```bash
-ros2 launch avl_slam slam.launch.py use_rviz:=false
+ros2 launch avl_slam slam.launch.py use_realsense:=false
 ```
 
 ---
 
-### 5.3 RealSense D455 as RGB-D
+### 5.3 Headless (recommended on Jetson to save GPU memory)
 ```bash
-ros2 launch avl_slam slam.launch.py use_realsense:=true use_rviz:=false
-```
-**Additional expected output:**
-```
-Device Name: Intel RealSense D455
-Device FW version: 5.13.0.50
-RealSense Node Is Up!
+ros2 launch avl_slam slam.launch.py use_rviz:=false
 ```
 
 ---
@@ -606,11 +598,11 @@ Open a second terminal and source the workspace, then run:
 
 ### 6.1 All expected topics live
 ```bash
-ros2 topic list | grep -E "velodyne|zed|filter/imu|odom|rtabmap|camera"
+ros2 topic list | grep -E "velodyne|zed|imu|odom|rtabmap|camera"
 ```
-**Expected (ZED mode):**
+**Expected (default 4-camera mode):**
 ```
-/filter/imu/data
+/imu/data
 /odom
 /rtabmap/cloud_map
 /rtabmap/grid_map
@@ -618,6 +610,8 @@ ros2 topic list | grep -E "velodyne|zed|filter/imu|odom|rtabmap|camera"
 /rtabmap/odom
 /velodyne_packets
 /velodyne_points
+/camera/camera/aligned_depth_to_color/image_raw
+/camera/camera/color/image_raw
 /zed_back/zed_node/depth/depth_registered
 /zed_back/zed_node/rgb/image_rect_color
 /zed_left/zed_node/depth/depth_registered
@@ -625,18 +619,14 @@ ros2 topic list | grep -E "velodyne|zed|filter/imu|odom|rtabmap|camera"
 /zed_right/zed_node/depth/depth_registered
 /zed_right/zed_node/rgb/image_rect_color
 ```
-**Additionally with `use_realsense:=true`:**
-```
-/camera/camera/aligned_depth_to_color/image_raw
-/camera/camera/color/image_raw
-```
+**ZED-only mode (`use_realsense:=false`):** omit `/camera/...` topics above.
 
 ---
 
 ### 6.2 Topic rates
 ```bash
 ros2 topic hz /velodyne_points                               # ~10 Hz
-ros2 topic hz /filter/imu/data                              # ~100 Hz
+ros2 topic hz /imu/data                                     # ~100 Hz
 ros2 topic hz /odom                                         # ~10 Hz
 ros2 topic hz /zed_right/zed_node/rgb/image_rect_color      # ~15 Hz
 ros2 topic hz /zed_right/zed_node/depth/depth_registered    # ~15 Hz
@@ -678,7 +668,7 @@ ros2 param get /icp_odometry Icp/MaxTranslation
 
 ### 6.6 IMU actually reaching RTAB-Map
 ```bash
-ros2 topic echo /filter/imu/data --once | grep -A 4 orientation
+ros2 topic echo /imu/data --once | grep -A 4 orientation
 ```
 **Expected:** non-zero `x`, `y`, `z`, `w` values. If all zeros, the Xsens filter hasn't converged — let it sit still for 5 seconds.
 
@@ -703,7 +693,7 @@ ros2 bag record \
   /zed_right/zed_node/rgb/image_rect_color \
   /zed_right/zed_node/rgb/camera_info \
   /zed_right/zed_node/depth/depth_registered \
-  /filter/imu/data \
+  /imu/data \
   /odom \
   /tf \
   /tf_static \
