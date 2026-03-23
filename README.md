@@ -161,8 +161,9 @@ The launch file selects the RTAB-Map node automatically based on launch args:
 
 | Mode | Args | Cameras fused |
 |---|---|---|
-| **4-camera (default)** | `use_multicamera=true use_realsense=true` | RealSense + ZED Left/Right/Back |
-| 3-camera ZED only | `use_multicamera=true use_realsense=false` | ZED Left/Right/Back |
+| **3-camera (current default)** | `use_multicamera=true use_realsense=true use_zed_right=false` | RealSense + ZED Left/Back ← ZED Right disabled (HW fault) |
+| 4-camera (when ZED Right repaired) | `use_multicamera=true use_realsense=true use_zed_right=true` | RealSense + ZED Left/Right/Back |
+| 3-camera ZED only | `use_multicamera=true use_realsense=false use_zed_right=false` | ZED Left/Back |
 | Single RealSense | `use_multicamera=false use_realsense=true` | RealSense only |
 | Single ZED right | `use_multicamera=false use_realsense=false` | ZED Right only |
 

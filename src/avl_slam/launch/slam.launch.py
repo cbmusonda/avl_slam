@@ -77,7 +77,8 @@ def generate_launch_description():
     use_xsens_arg = DeclareLaunchArgument('use_xsens', default_value='true',
                             description='true=launch Xsens IMU driver, false=skip it')
     use_zed_left_arg = DeclareLaunchArgument('use_zed_left', default_value='true')
-    use_zed_right_arg = DeclareLaunchArgument('use_zed_right', default_value='true')
+    # TODO: ZED X Right (S/N 47753729) disabled — hardware fault. Change default back to 'true' when repaired.
+    use_zed_right_arg = DeclareLaunchArgument('use_zed_right', default_value='false')
     use_zed_back_arg = DeclareLaunchArgument('use_zed_back', default_value='true')
 
     use_rviz         = LaunchConfiguration('use_rviz')
@@ -207,6 +208,8 @@ def generate_launch_description():
     )
 
     # ── 4. ZED X Right Camera (right side of vehicle) ─────────────────
+    # DISABLED — hardware fault on S/N 47753729. use_zed_right defaults to false.
+    # To re-enable: set use_zed_right default back to 'true' above.
     zed_right = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([
             PathJoinSubstitution([zed_launch_dir, 'zed_camera.launch.py'])
