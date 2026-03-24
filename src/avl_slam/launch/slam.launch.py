@@ -404,6 +404,9 @@ def generate_launch_description():
             'subscribe_rgbd': True,
             'rgbd_cameras': 4,
             'approx_sync': True,
+            'approx_sync_max_interval': 0.5,  # drop stale frames if a camera lags/disconnects
+            'topic_queue_size': 30,
+            'sync_queue_size': 30,
         }],
         remappings=[
             ('scan_cloud', '/velodyne_points'),
@@ -432,6 +435,9 @@ def generate_launch_description():
             'subscribe_rgbd': True,
             'rgbd_cameras': 3,
             'approx_sync': True,
+            'approx_sync_max_interval': 0.5,  # drop stale frames if a camera lags/disconnects
+            'topic_queue_size': 30,
+            'sync_queue_size': 30,
         }],
         remappings=[
             ('scan_cloud', '/velodyne_points'),
@@ -448,7 +454,38 @@ def generate_launch_description():
         ])),
     )
 
-    # RTAB-Map: 3 ZED cameras only (use_multicamera=true, use_realsense=false) — DEFAULT mode
+    # RTAB-Map: ZED left + ZED back only — fallback when RealSense is disabled/disconnected
+    # Activates when: use_multicamera=true, use_realsense=false, use_zed_right=false
+    rtabmap_multicam_zed2 = Node(
+        package='rtabmap_slam',
+        executable='rtabmap',
+        name='rtabmap',
+        output='screen',
+        parameters=rtabmap_common_params + [{
+            'subscribe_rgb': False,
+            'subscribe_depth': False,
+            'subscribe_rgbd': True,
+            'rgbd_cameras': 2,
+            'approx_sync': True,
+            'approx_sync_max_interval': 0.5,
+            'topic_queue_size': 30,
+            'sync_queue_size': 30,
+        }],
+        remappings=[
+            ('scan_cloud', '/velodyne_points'),
+            ('imu', '/imu/data'),
+            ('rgbd_image0', '/zed_left/rgbd_image'),
+            ('rgbd_image1', '/zed_back/rgbd_image'),
+        ],
+        condition=IfCondition(PythonExpression([
+            "'", use_multicamera, "' == 'true' and '", use_realsense,
+            "' != 'true' and '", use_zed_left,
+            "' == 'true' and '", use_zed_right,
+            "' != 'true' and '", use_zed_back, "' == 'true'",
+        ])),
+    )
+
+    # RTAB-Map: all 3 ZED cameras (use_multicamera=true, use_realsense=false, all ZEDs on)
     rtabmap_multicam_zed3 = Node(
         package='rtabmap_slam',
         executable='rtabmap',
@@ -568,6 +605,35 @@ def generate_launch_description():
         condition=IfCondition(PythonExpression([
             "'", use_multicamera, "' == 'true' and '", use_realsense,
             "' == 'true' and '", use_zed_left,
+            "' == 'true' and '", use_zed_right,
+            "' != 'true' and '", use_zed_back, "' == 'true'",
+        ])),
+    )
+
+    rtabmap_viz_multicam_zed2 = Node(
+        package='rtabmap_viz',
+        executable='rtabmap_viz',
+        name='rtabmap_viz',
+        output='screen',
+        parameters=[
+            PathJoinSubstitution([avl_slam_share, 'config', 'rtabmap.yaml']),
+            {
+                'subscribe_rgb': False,
+                'subscribe_depth': False,
+                'subscribe_rgbd': True,
+                'rgbd_cameras': 2,
+                'approx_sync': True,
+            },
+        ],
+        remappings=[
+            ('scan_cloud', '/velodyne_points'),
+            ('imu', '/imu/data'),
+            ('rgbd_image0', '/zed_left/rgbd_image'),
+            ('rgbd_image1', '/zed_back/rgbd_image'),
+        ],
+        condition=IfCondition(PythonExpression([
+            "'", use_multicamera, "' == 'true' and '", use_realsense,
+            "' != 'true' and '", use_zed_left,
             "' == 'true' and '", use_zed_right,
             "' != 'true' and '", use_zed_back, "' == 'true'",
         ])),
@@ -728,7 +794,8 @@ def generate_launch_description():
         rtabmap_zed,
         rtabmap_multicam_4,
         rtabmap_multicam_3,
-        rtabmap_multicam_zed3,   # DEFAULT: 3 ZED cameras, no RealSense
+        rtabmap_multicam_zed2,   # CURRENT DEFAULT: ZED left + ZED back (ZED right disabled HW fault)
+        rtabmap_multicam_zed3,   # ZED left + ZED right + ZED back (when all 3 ZEDs working)
     ]
 
     # RViz2 — always alongside rtabmap_viz when use_rviz=true
@@ -760,6 +827,15 @@ def generate_launch_description():
                 condition=IfCondition(PythonExpression([
                     "'", use_multicamera, "' == 'true' and '", use_realsense,
                     "' == 'true' and '", use_zed_left,
+                    "' == 'true' and '", use_zed_right,
+                    "' != 'true' and '", use_zed_back, "' == 'true'",
+                ])),
+            ),
+            GroupAction(
+                actions=[rtabmap_viz_multicam_zed2],
+                condition=IfCondition(PythonExpression([
+                    "'", use_multicamera, "' == 'true' and '", use_realsense,
+                    "' != 'true' and '", use_zed_left,
                     "' == 'true' and '", use_zed_right,
                     "' != 'true' and '", use_zed_back, "' == 'true'",
                 ])),
