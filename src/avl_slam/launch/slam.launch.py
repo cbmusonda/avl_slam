@@ -140,7 +140,7 @@ def generate_launch_description():
         output='screen',
         parameters=[
             PathJoinSubstitution([avl_slam_share, 'config', 'rtabmap.yaml']),
-            {'Icp/MaxTranslation': '1.0'},
+            {'Icp/MaxTranslation': '3.0'},  # 1.0m too tight at 5mph — bumps/jitter exceed limit
             {'Odom/Strategy': '0'},
         ],
         remappings=[
