@@ -11,6 +11,8 @@
   <buildtool_depend>ament_cmake</buildtool_depend>
 
   <depend>rclcpp</depend>
+  <depend>rclpy</depend>
+  <depend>rtabmap_msgs</depend>
   <depend>rtabmap_ros</depend>
   <depend>velodyne_driver</depend>
   <depend>velodyne_pointcloud</depend>

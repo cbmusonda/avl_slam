@@ -424,28 +424,23 @@ def generate_launch_description():
         ])),
     )
 
-    rtabmap_multicam_3 = Node(
-        package='rtabmap_slam',
-        executable='rtabmap',
-        name='rtabmap',
+    # RTAB-Map watchdog — DEFAULT mode (use_multicamera=true, use_realsense=true, use_zed_right=false)
+    # Monitors /realsense_front/rgbd_image and dynamically switches between:
+    #   3-camera mode: RealSense + ZED Left + ZED Back  (when RealSense alive)
+    #   2-camera mode: ZED Left + ZED Back only          (when RealSense drops)
+    # Debounce: 5s dead → switch to ZED-only, 10s alive → switch back to 3-cam
+    rtabmap_watchdog = Node(
+        package='avl_slam',
+        executable='rtabmap_watchdog.py',
+        name='rtabmap_watchdog',
         output='screen',
-        parameters=rtabmap_common_params + [{
-            'subscribe_rgb': False,
-            'subscribe_depth': False,
-            'subscribe_rgbd': True,
-            'rgbd_cameras': 3,
-            'approx_sync': True,
-            'approx_sync_max_interval': 0.5,  # drop stale frames if a camera lags/disconnects
-            'topic_queue_size': 30,
-            'sync_queue_size': 30,
+        parameters=[{
+            'database_path': database_path,
+            'rtabmap_yaml': PathJoinSubstitution([avl_slam_share, 'config', 'rtabmap.yaml']),
+            'dead_timeout':  5.0,
+            'alive_timeout': 10.0,
+            'db_save_wait':  5.0,
         }],
-        remappings=[
-            ('scan_cloud', '/velodyne_points'),
-            ('imu', '/imu/data'),          # FIX #1 (driver publishes fused IMU here)
-            ('rgbd_image0', '/realsense_front/rgbd_image'),
-            ('rgbd_image1', '/zed_left/rgbd_image'),
-            ('rgbd_image2', '/zed_back/rgbd_image'),
-        ],
         condition=IfCondition(PythonExpression([
             "'", use_multicamera, "' == 'true' and '", use_realsense,
             "' == 'true' and '", use_zed_left,
@@ -793,7 +788,7 @@ def generate_launch_description():
         rtabmap_realsense,
         rtabmap_zed,
         rtabmap_multicam_4,
-        rtabmap_multicam_3,
+        rtabmap_watchdog,
         rtabmap_multicam_zed2,   # CURRENT DEFAULT: ZED left + ZED back (ZED right disabled HW fault)
         rtabmap_multicam_zed3,   # ZED left + ZED right + ZED back (when all 3 ZEDs working)
     ]
